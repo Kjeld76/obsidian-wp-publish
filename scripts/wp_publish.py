@@ -13,11 +13,29 @@ ANHANG_ORDNER = [os.path.join(VAULT, "07 Anhänge")]
 
 
 def _finde_bild(name, notiz_pfad):
-    kandidaten = [os.path.join(os.path.dirname(notiz_pfad), name)]
+    """Sucht die Bilddatei zu einem ![[...]]-Embed.
+
+    Obsidian schreibt Embeds mal als blossen Dateinamen, mal mit vollem
+    Vault-Pfad. Die Blog-Bilder liegen laut gemeinsamem Frontmatter-Schema
+    unter "07 Anhaenge/Blog/<slug>/", also in einem Unterordner - deshalb
+    reicht ein Blick in die Anhang-Wurzel nicht.
+    """
+    name = name.replace("\\", "/").strip()
+    kandidaten = [
+        os.path.join(os.path.dirname(notiz_pfad), name),   # neben der Notiz
+        os.path.join(VAULT, name),                         # vault-relativer Embed-Pfad
+    ]
     kandidaten += [os.path.join(o, name) for o in ANHANG_ORDNER]
     for pfad in kandidaten:
         if os.path.isfile(pfad):
-            return pfad
+            return os.path.normpath(pfad)
+
+    # Zuletzt rekursiv unter den Anhang-Ordnern nach dem reinen Dateinamen.
+    basis = os.path.basename(name)
+    for ordner in ANHANG_ORDNER:
+        for wurzel, _, dateien in os.walk(ordner):
+            if basis in dateien:
+                return os.path.normpath(os.path.join(wurzel, basis))
     return None
 
 

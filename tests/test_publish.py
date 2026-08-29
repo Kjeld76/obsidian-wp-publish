@@ -77,3 +77,43 @@ def test_echtlauf_legt_terms_an():
     payload, _ = wp.baue_payload(NOTIZ, CFG, client, "C:/egal/Notiz.md", schreiben=True)
     assert client.anlegen_flags == [True, True]
     assert payload["categories"] == [99]
+
+
+# --- Bildsuche -------------------------------------------------------------
+# Laut gemeinsamem Schema (devnull-draft/references/frontmatter-schema.md)
+# liegen Bilder unter "07 Anhänge/Blog/<slug>/" - also in einem UNTERordner.
+
+def test_bild_wird_im_unterordner_von_anhaenge_gefunden(tmp_path, monkeypatch):
+    anhaenge = tmp_path / "07 Anhaenge"
+    (anhaenge / "Blog" / "mein-post").mkdir(parents=True)
+    bild = anhaenge / "Blog" / "mein-post" / "diagramm.png"
+    bild.write_bytes(b"x")
+    monkeypatch.setattr(wp, "ANHANG_ORDNER", [str(anhaenge)])
+    gefunden = wp._finde_bild("diagramm.png", str(tmp_path / "Notiz.md"))
+    assert gefunden == str(bild)
+
+
+def test_bild_mit_leerzeichen_wird_gefunden(tmp_path, monkeypatch):
+    """Obsidians Default beim Einfuegen: 'Pasted image 20260829.png'."""
+    anhaenge = tmp_path / "07 Anhaenge"
+    (anhaenge / "Blog").mkdir(parents=True)
+    bild = anhaenge / "Blog" / "Pasted image 20260829.png"
+    bild.write_bytes(b"x")
+    monkeypatch.setattr(wp, "ANHANG_ORDNER", [str(anhaenge)])
+    assert wp._finde_bild("Pasted image 20260829.png", str(tmp_path / "N.md")) == str(bild)
+
+
+def test_vault_relativer_embed_pfad_wird_aufgeloest(tmp_path, monkeypatch):
+    """Obsidian schreibt Embeds auch mit vollem Vault-Pfad."""
+    (tmp_path / "07 Anhaenge" / "Blog" / "slug").mkdir(parents=True)
+    bild = tmp_path / "07 Anhaenge" / "Blog" / "slug" / "bild.png"
+    bild.write_bytes(b"x")
+    monkeypatch.setattr(wp, "VAULT", str(tmp_path))
+    monkeypatch.setattr(wp, "ANHANG_ORDNER", [str(tmp_path / "07 Anhaenge")])
+    gefunden = wp._finde_bild("07 Anhaenge/Blog/slug/bild.png", str(tmp_path / "N.md"))
+    assert gefunden == str(bild)
+
+
+def test_nicht_vorhandenes_bild_liefert_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(wp, "ANHANG_ORDNER", [str(tmp_path)])
+    assert wp._finde_bild("gibtsnicht.png", str(tmp_path / "N.md")) is None
