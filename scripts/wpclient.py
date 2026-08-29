@@ -2,6 +2,8 @@
 import html
 import mimetypes
 import os
+import re
+import unicodedata
 
 import requests
 
@@ -83,8 +85,32 @@ class WPClient:
                 fehlend.append(name)
         return ids, fehlend
 
-    def upload_media(self, pfad):
-        name = os.path.basename(pfad)
+    @staticmethod
+    def medien_dateiname(pfad):
+        """Deterministischer, WordPress-sicherer Dateiname.
+
+        Wird bewusst vor dem Upload angewandt, damit der WordPress-Slug
+        vorhersagbar ist und ein spaeterer Lauf dieselbe Datei wiederfindet.
+        """
+        stamm, endung = os.path.splitext(os.path.basename(pfad))
+        stamm = unicodedata.normalize("NFKD", stamm)
+        stamm = stamm.encode("ascii", "ignore").decode("ascii")
+        stamm = re.sub(r"[^A-Za-z0-9]+", "-", stamm).strip("-").lower()
+        return (stamm or "bild") + endung.lower()
+
+    def upload_media(self, pfad, wiederverwenden=True):
+        """Laedt eine Datei hoch und gibt ihre source_url zurueck.
+
+        Liegt sie schon in der Mediathek, wird die vorhandene wiederverwendet.
+        Ohne das erzeugte jeder Republish eine Kopie - am 29.08.2026 live
+        gemessen ('Pasted-image-20260829-1.png' nach dem zweiten Lauf).
+        """
+        name = self.medien_dateiname(pfad)
+        if wiederverwenden:
+            treffer = self._call("GET", "/wp/v2/media",
+                                 params={"slug": os.path.splitext(name)[0], "per_page": 5})
+            if treffer:
+                return treffer[0]["source_url"]
         typ = mimetypes.guess_type(name)[0] or "application/octet-stream"
         with open(pfad, "rb") as fh:
             daten = fh.read()

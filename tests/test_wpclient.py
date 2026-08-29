@@ -86,3 +86,36 @@ def test_termliste_wird_nur_einmal_geladen():
     c = _client([FakeAntwort(200, [{"id": 7, "name": "Linux"}, {"id": 8, "name": "HPC"}])])
     assert c.term_ids("tags", ["Linux", "HPC"]) == ([7, 8], [])
     assert len(c.session.aufrufe) == 1
+
+
+# --- Medien ----------------------------------------------------------------
+# Am 29.08.2026 live gemessen: zwei Laeufe derselben Notiz erzeugten
+# 'Pasted-image-20260829.png' UND 'Pasted-image-20260829-1.png'. Die
+# Idempotenz galt bis dahin nur fuer den Post, nicht fuer die Mediathek.
+
+def test_dateiname_wird_deterministisch_normalisiert():
+    f = wpclient.WPClient.medien_dateiname
+    assert f(r"C:\x\Pasted image 20260829.png") == "pasted-image-20260829.png"
+    assert f("/x/Mein Bild (2).JPG") == "mein-bild-2.jpg"
+    assert f("/x/Groesse über alles.png") == "groesse-uber-alles.png"
+
+
+def test_vorhandenes_medium_wird_wiederverwendet(tmp_path):
+    datei = tmp_path / "Pasted image 20260829.png"
+    datei.write_bytes(b"x")
+    c = _client([FakeAntwort(200, [{"id": 175, "source_url": "https://b.test/pasted-image-20260829.png"}])])
+    url = c.upload_media(str(datei))
+    assert url == "https://b.test/pasted-image-20260829.png"
+    assert [a[0] for a in c.session.aufrufe] == ["GET"]          # kein zweiter Upload
+
+
+def test_unbekanntes_medium_wird_hochgeladen(tmp_path):
+    datei = tmp_path / "neu.png"
+    datei.write_bytes(b"x")
+    c = _client([FakeAntwort(200, []),
+                 FakeAntwort(201, {"id": 9, "source_url": "https://b.test/neu.png"})])
+    assert c.upload_media(str(datei)) == "https://b.test/neu.png"
+    methoden = [a[0] for a in c.session.aufrufe]
+    assert methoden == ["GET", "POST"]
+    kopf = c.session.aufrufe[1][2]["headers"]["Content-Disposition"]
+    assert 'filename="neu.png"' in kopf
