@@ -1,4 +1,5 @@
 """Duenner Client fuer die WordPress-REST-API v2."""
+import html
 import mimetypes
 import os
 
@@ -15,6 +16,7 @@ class WPClient:
         self.session = requests.Session()
         self.session.auth = (user, app_password)
         self.session.headers.update({"Accept": "application/json"})
+        self._term_cache = {}
 
     def _call(self, methode, pfad, **kwargs):
         kwargs.setdefault("timeout", 60)
@@ -25,12 +27,42 @@ class WPClient:
                           % (methode, pfad, antwort.status_code, antwort.text[:300]))
         return antwort.json()
 
-    def term_ids(self, taxonomy, namen):
-        """Namen auf Term-IDs abbilden; fehlende Terms werden angelegt.
+    def _alle_terms(self, taxonomy):
+        """Vollstaendige Termliste einer Taxonomie, einmal je Lauf geladen.
+
+        Bewusst OHNE den search-Parameter: Namen mit Sonderzeichen liegen in
+        WordPress als HTML-Entity in der Datenbank ("Code &amp; Technik"), die
+        Suche nach dem Klartextnamen liefert dann null Treffer. Am echten Blog
+        am 29.08.2026 gemessen - der Client haette ein Duplikat angelegt.
+        """
+        if taxonomy in self._term_cache:
+            return self._term_cache[taxonomy]
+        alle = []
+        seite = 1
+        while True:
+            teil = self._call("GET", "/wp/v2/%s" % taxonomy,
+                              params={"per_page": 100, "page": seite, "hide_empty": "false"})
+            alle.extend(teil)
+            if len(teil) < 100:
+                break
+            seite += 1
+        self._term_cache[taxonomy] = alle
+        return alle
+
+    @staticmethod
+    def _term_key(name):
+        return html.unescape(str(name)).strip().lower()
+
+    def term_ids(self, taxonomy, namen, anlegen=True):
+        """Namen auf Term-IDs abbilden. Gibt (ids, fehlende_namen) zurueck.
 
         Zahlen werden unveraendert als bereits bekannte ID durchgereicht.
+        Mit anlegen=False wird nichts geschrieben: unbekannte Terms landen
+        stattdessen in der zweiten Rueckgabeliste. Das braucht der Dry-Run,
+        der nach eigener Zusage nichts an WordPress sendet.
         """
         ids = []
+        fehlend = []
         for name in namen or []:
             if isinstance(name, int) and not isinstance(name, bool):
                 ids.append(name)
@@ -38,14 +70,18 @@ class WPClient:
             name = str(name).strip()
             if not name:
                 continue
-            treffer = self._call("GET", "/wp/v2/%s" % taxonomy,
-                                 params={"search": name, "per_page": 100})
-            passend = [t for t in treffer if t.get("name", "").lower() == name.lower()]
+            gesucht = self._term_key(name)
+            passend = [t for t in self._alle_terms(taxonomy)
+                       if self._term_key(t.get("name", "")) == gesucht]
             if passend:
                 ids.append(passend[0]["id"])
+            elif anlegen:
+                neu = self._call("POST", "/wp/v2/%s" % taxonomy, json={"name": name})
+                self._term_cache[taxonomy].append(neu)      # nicht zweimal anlegen
+                ids.append(neu["id"])
             else:
-                ids.append(self._call("POST", "/wp/v2/%s" % taxonomy, json={"name": name})["id"])
-        return ids
+                fehlend.append(name)
+        return ids, fehlend
 
     def upload_media(self, pfad):
         name = os.path.basename(pfad)

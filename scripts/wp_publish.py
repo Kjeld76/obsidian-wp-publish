@@ -21,7 +21,14 @@ def _finde_bild(name, notiz_pfad):
     return None
 
 
-def baue_payload(notiz_text, cfg, client, notiz_pfad):
+def baue_payload(notiz_text, cfg, client, notiz_pfad, schreiben=True):
+    """Baut den WordPress-Payload. Gibt (payload, warnungen) zurueck.
+
+    Mit schreiben=False wird nichts an WordPress geschrieben - weder werden
+    fehlende Terms angelegt noch Bilder hochgeladen. Beides wird stattdessen
+    als Warnung gemeldet. Das ist der Modus des Dry-Runs, der nach eigener
+    Zusage nichts sendet.
+    """
     daten, roh, rumpf = fm.split_note(notiz_text)
     if roh is None:
         raise fm.FrontmatterError(
@@ -37,18 +44,28 @@ def baue_payload(notiz_text, cfg, client, notiz_pfad):
         if pfad is None:
             warnungen.append("Bild '%s' nicht gefunden - Platzhalter bleibt stehen" % name)
             continue
+        if not schreiben:
+            warnungen.append("Bild '%s' wuerde in die Mediathek hochgeladen" % name)
+            continue
         url_map[name] = client.upload_media(pfad)
 
     html = mdconvert.ersetze_medien(mdconvert.to_html(md_text), url_map)
     titel = daten.get("title") or os.path.splitext(os.path.basename(notiz_pfad))[0]
 
+    kat_ids, kat_fehlend = client.term_ids(
+        "categories", daten.get("categories") or [cfg["default_category"]], anlegen=schreiben)
+    tag_ids, tag_fehlend = client.term_ids(
+        "tags", daten.get("tags") or [], anlegen=schreiben)
+    for tax, fehlend in (("Kategorie", kat_fehlend), ("Tag", tag_fehlend)):
+        for name in fehlend:
+            warnungen.append("%s '%s' existiert nicht und wuerde neu angelegt" % (tax, name))
+
     payload = {
         "title": str(titel),
         "content": html,
         "status": daten.get("wp_status") or cfg["default_status"],
-        "categories": client.term_ids(
-            "categories", daten.get("categories") or [cfg["default_category"]]),
-        "tags": client.term_ids("tags", daten.get("tags") or []),
+        "categories": kat_ids,
+        "tags": tag_ids,
     }
     return payload, warnungen
 
@@ -68,7 +85,7 @@ def main(argv=None):
     client = wpclient.WPClient(cfg["site"], cfg["username"],
                                credentials.get_app_password(cfg["site"], cfg["username"]))
 
-    payload, warnungen = baue_payload(text, cfg, client, pfad)
+    payload, warnungen = baue_payload(text, cfg, client, pfad, schreiben=not args.dry_run)
     if args.status:
         payload["status"] = args.status
     wp_id = fm.split_note(text)[0].get("wp_id")
