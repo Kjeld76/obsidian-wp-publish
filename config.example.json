@@ -1,0 +1,8 @@
+{
+  "site": "https://example.com",
+  "username": "your-wordpress-username",
+  "vault_path": "",
+  "attachment_folders": [],
+  "default_category": "Uncategorized",
+  "default_status": "draft"
+}

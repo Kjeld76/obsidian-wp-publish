@@ -1,62 +1,63 @@
 import pytest
 import frontmatter as fm
 
-NOTIZ = (
+NOTE = (
     "---\n"
-    "title: Testpost\n"
+    "title: Test post\n"
     "tags:\n"
     "  - linux\n"
     "  - hpc\n"
     "categories:\n"
-    "  - Allgemein\n"
+    "  - Uncategorized\n"
     "---\n"
     "\n"
-    "# Ueberschrift\n"
+    "# Heading\n"
     "\n"
-    "- eins\n"
-    "- zwei\n"
+    "- one\n"
+    "- two\n"
 )
 
-# Genau der beim Plugin beobachtete Schaden: oeffnende --- fehlt.
-KAPUTT = "categories:\n  - 1\n---\n\nDas ist ein Testpost.\n"
+# Exactly the damage observed in the wild: the opening --- is missing, so
+# Obsidian stops recognising the block as frontmatter altogether.
+BROKEN = "categories:\n  - 1\n---\n\nThis is a test post.\n"
 
 
-def test_split_liest_alle_felder():
-    daten, roh, rumpf = fm.split_note(NOTIZ)
-    assert daten["title"] == "Testpost"
-    assert daten["tags"] == ["linux", "hpc"]
-    assert daten["categories"] == ["Allgemein"]
-    assert rumpf.startswith("\n# Ueberschrift")
+def test_split_reads_every_field():
+    data, raw, body = fm.split_note(NOTE)
+    assert data["title"] == "Test post"
+    assert data["tags"] == ["linux", "hpc"]
+    assert data["categories"] == ["Uncategorized"]
+    assert body.startswith("\n# Heading")
 
 
-def test_set_field_haengt_an_und_laesst_alles_andere_stehen():
-    neu = fm.set_field(NOTIZ, "wp_id", 168)
-    daten, _, rumpf = fm.split_note(neu)
-    assert daten["wp_id"] == 168
-    assert daten["title"] == "Testpost"
-    assert daten["tags"] == ["linux", "hpc"]
-    assert daten["categories"] == ["Allgemein"]
-    assert rumpf == fm.split_note(NOTIZ)[2]
-    assert neu.startswith("---\n") and "\n---\n" in neu
+def test_set_field_appends_and_leaves_everything_else_alone():
+    new = fm.set_field(NOTE, "wp_id", 168)
+    data, _, body = fm.split_note(new)
+    assert data["wp_id"] == 168
+    assert data["title"] == "Test post"
+    assert data["tags"] == ["linux", "hpc"]
+    assert data["categories"] == ["Uncategorized"]
+    assert body == fm.split_note(NOTE)[2]
+    assert new.startswith("---\n") and "\n---\n" in new
 
 
-def test_set_field_aktualisiert_statt_zu_duplizieren():
-    zweimal = fm.set_field(fm.set_field(NOTIZ, "wp_id", 168), "wp_id", 999)
-    assert zweimal.count("wp_id:") == 1
-    assert fm.split_note(zweimal)[0]["wp_id"] == 999
+def test_set_field_updates_instead_of_duplicating():
+    twice = fm.set_field(fm.set_field(NOTE, "wp_id", 168), "wp_id", 999)
+    assert twice.count("wp_id:") == 1
+    assert fm.split_note(twice)[0]["wp_id"] == 999
 
 
-def test_kaputtes_frontmatter_wird_abgelehnt_statt_ueberschrieben():
+def test_broken_frontmatter_is_rejected_instead_of_overwritten():
     with pytest.raises(fm.FrontmatterError):
-        fm.set_field(KAPUTT, "wp_id", 168)
+        fm.set_field(BROKEN, "wp_id", 168)
 
 
-def test_crlf_notiz_bleibt_lesbar():
-    assert fm.split_note(NOTIZ.replace("\n", "\r\n"))[0]["title"] == "Testpost"
+def test_crlf_note_stays_readable():
+    assert fm.split_note(NOTE.replace("\n", "\r\n"))[0]["title"] == "Test post"
 
 
-def test_eingerueckter_gleichnamiger_key_wird_nicht_getroffen():
-    notiz = "---\nmeta:\n  wp_id: 1\ntitle: X\n---\n\nText\n"
-    daten, _, _ = fm.split_note(fm.set_field(notiz, "wp_id", 168))
-    assert daten["meta"]["wp_id"] == 1
-    assert daten["wp_id"] == 168
+def test_indented_key_of_the_same_name_is_not_touched():
+    note = "---\nmeta:\n  wp_id: 1\ntitle: X\n---\n\nText\n"
+    data, _, _ = fm.split_note(fm.set_field(note, "wp_id", 168))
+    assert data["meta"]["wp_id"] == 1
+    assert data["wp_id"] == 168

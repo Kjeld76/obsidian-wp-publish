@@ -1,8 +1,8 @@
-"""Liest und schreibt YAML-Frontmatter von Obsidian-Notizen.
+"""Read and write the YAML frontmatter of Obsidian notes.
 
-Geschrieben wird chirurgisch: nur die Zeile des betroffenen Keys wird ersetzt
-oder ergaenzt. Alles andere - Reihenfolge, Quoting, Einrueckung, Rumpftext -
-bleibt byteweise unveraendert. Jeder Schreibvorgang prueft sich selbst.
+Writing is surgical: only the line of the affected key is replaced or added.
+Everything else - key order, quoting, indentation, body text - stays byte for
+byte identical. Every write verifies itself before it is committed to disk.
 """
 import os
 import re
@@ -19,70 +19,70 @@ class FrontmatterError(Exception):
 
 
 def split_note(text):
-    """(daten, roh_yaml, rumpf). Ohne gueltiges Frontmatter: ({}, None, text)."""
+    """Returns (data, raw_yaml, body). Without valid frontmatter: ({}, None, text)."""
     match = FM_RE.match(text)
     if not match:
         return {}, None, text
-    roh = match.group(1)
+    raw = match.group(1)
     try:
-        daten = yaml.safe_load(roh)
+        data = yaml.safe_load(raw)
     except yaml.YAMLError as err:
-        raise FrontmatterError("Frontmatter ist kein gueltiges YAML: %s" % err)
-    if daten is None:
-        daten = {}
-    if not isinstance(daten, dict):
-        raise FrontmatterError("Frontmatter ist kein YAML-Mapping")
-    return daten, roh, text[match.end():]
+        raise FrontmatterError("Frontmatter is not valid YAML: %s" % err)
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        raise FrontmatterError("Frontmatter is not a YAML mapping")
+    return data, raw, text[match.end():]
 
 
 def set_field(text, key, value):
-    """Setzt genau ein Skalarfeld im Frontmatter und gibt den neuen Text zurueck."""
+    """Set exactly one scalar field in the frontmatter and return the new text."""
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-        raise FrontmatterError("Nur Zahlen und Strings werden geschrieben, nicht %r" % type(value))
+        raise FrontmatterError("Only numbers and strings are written, not %r" % type(value))
 
-    alt, roh, rumpf = split_note(text)
-    if roh is None:
+    old, raw, body = split_note(text)
+    if raw is None:
         raise FrontmatterError(
-            "Notiz hat kein gueltiges Frontmatter (fehlende oder defekte '---'-Trenner). "
-            "Es wird nichts geschrieben - bitte die Notiz zuerst reparieren."
+            "This note has no valid frontmatter (missing or broken '---' delimiters). "
+            "Nothing was written - please repair the note first."
         )
 
-    zeile = "%s: %s" % (key, value)
+    line = "%s: %s" % (key, value)
     key_re = re.compile(r"^%s[ \t]*:.*$" % re.escape(key), re.MULTILINE)
-    if key_re.search(roh):
-        neu_roh = key_re.sub(zeile, roh, count=1)
+    if key_re.search(raw):
+        new_raw = key_re.sub(line, raw, count=1)
     else:
-        neu_roh = roh.rstrip("\r\n") + "\n" + zeile
+        new_raw = raw.rstrip("\r\n") + "\n" + line
 
-    neu_text = "---\n" + neu_roh + "\n---\n" + rumpf
+    new_text = "---\n" + new_raw + "\n---\n" + body
 
-    # Selbstkontrolle - genau die Pruefungen, an denen das Plugin gescheitert ist.
-    neu, neu_roh_check, neu_rumpf = split_note(neu_text)
-    if neu_roh_check is None:
-        raise FrontmatterError("Ergebnis haette kein gueltiges Frontmatter - abgebrochen")
-    verloren = sorted(set(alt) - set(neu))
-    if verloren:
-        raise FrontmatterError("Felder gingen verloren: %s - abgebrochen" % ", ".join(verloren))
-    for feld, wert in alt.items():
-        if feld != key and neu.get(feld) != wert:
-            raise FrontmatterError("Feld '%s' wurde veraendert - abgebrochen" % feld)
-    if neu.get(key) != value:
-        raise FrontmatterError("Feld '%s' wurde nicht korrekt gesetzt - abgebrochen" % key)
-    if neu_rumpf != rumpf:
-        raise FrontmatterError("Notiztext wurde veraendert - abgebrochen")
-    return neu_text
+    # Self-check - exactly the properties a careless writer gets wrong.
+    new, new_raw_check, new_body = split_note(new_text)
+    if new_raw_check is None:
+        raise FrontmatterError("Result would have no valid frontmatter - aborted")
+    lost = sorted(set(old) - set(new))
+    if lost:
+        raise FrontmatterError("Fields would be lost: %s - aborted" % ", ".join(lost))
+    for field, val in old.items():
+        if field != key and new.get(field) != val:
+            raise FrontmatterError("Field '%s' would be modified - aborted" % field)
+    if new.get(key) != value:
+        raise FrontmatterError("Field '%s' was not set correctly - aborted" % key)
+    if new_body != body:
+        raise FrontmatterError("The note body would be modified - aborted")
+    return new_text
 
 
-def write_note(path, neu_text):
-    """Schreibt atomar und legt vorher eine .bak-Kopie an."""
-    if not neu_text.strip():
-        raise FrontmatterError("Leerer Text wird nicht geschrieben")
+def write_note(path, new_text):
+    """Write atomically, keeping a .bak copy of the previous version."""
+    if not new_text.strip():
+        raise FrontmatterError("Refusing to write empty text")
     shutil.copy2(path, path + ".bak")
-    ordner = os.path.dirname(os.path.abspath(path))
-    fd, tmp = tempfile.mkstemp(dir=ordner, suffix=".tmp")
+    folder = os.path.dirname(os.path.abspath(path))
+    fd, tmp = tempfile.mkstemp(dir=folder, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
-            fh.write(neu_text)
+            fh.write(new_text)
         os.replace(tmp, path)
     except BaseException:
         if os.path.exists(tmp):

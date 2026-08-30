@@ -1,4 +1,4 @@
-"""Obsidian-Markdown fuer WordPress aufbereiten und nach HTML wandeln."""
+"""Prepare Obsidian flavoured Markdown for WordPress and convert it to HTML."""
 import re
 
 import markdown
@@ -12,47 +12,49 @@ CODE_CLASS_RE = re.compile(r'<code class="([a-z0-9+#-]+)">')
 
 
 def preprocess(body):
-    """(markdown_text, bilddateien, warnungen)."""
-    bilder = []
-    warnungen = []
+    """Returns (markdown_text, image_files, warnings)."""
+    images = []
+    warnings = []
 
     def _embed(match):
-        datei = match.group(1).strip()
-        if datei not in bilder:
-            bilder.append(datei)
-        return "![](WPMEDIA::%s)" % datei
+        filename = match.group(1).strip()
+        if filename not in images:
+            images.append(filename)
+        return "![](WPMEDIA::%s)" % filename
 
     def _wikilink(match):
-        ziel = match.group(1).strip()
+        target = match.group(1).strip()
         alias = (match.group(2) or "").strip()
-        warnungen.append("Wikilink '%s' wurde zu Klartext - im Blog gibt es die Notiz nicht" % ziel)
-        return alias or ziel.split("/")[-1]
+        warnings.append(
+            "Wikilink '%s' became plain text - the target note does not exist on the blog"
+            % target)
+        return alias or target.split("/")[-1]
 
     def _callout(match):
-        titel = match.group(1).strip()
-        return "> **%s**" % titel if titel else ">"
+        title = match.group(1).strip()
+        return "> **%s**" % title if title else ">"
 
     text = EMBED_RE.sub(_embed, body)
     text = WIKILINK_RE.sub(_wikilink, text)
     text = CALLOUT_RE.sub(_callout, text)
-    return text, bilder, warnungen
+    return text, images, warnings
 
 
-def _sprachklasse(match):
-    klasse = match.group(1)
-    if not klasse.startswith("language-"):
-        klasse = "language-" + klasse
-    return '<code class="%s">' % klasse
+def _language_class(match):
+    name = match.group(1)
+    if not name.startswith("language-"):
+        name = "language-" + name
+    return '<code class="%s">' % name
 
 
 def to_html(body):
     html = markdown.markdown(body, extensions=EXTENSIONS, output_format="html5")
-    # Sprachklasse vereinheitlichen: <code class="bash"> -> <code class="language-bash">
-    return CODE_CLASS_RE.sub(_sprachklasse, html)
+    # Normalise the language class: <code class="bash"> -> <code class="language-bash">
+    return CODE_CLASS_RE.sub(_language_class, html)
 
 
-def ersetze_medien(html, url_map):
-    """Ersetzt die WPMEDIA::-Platzhalter durch die hochgeladenen WordPress-URLs."""
-    for datei, url in url_map.items():
-        html = html.replace("WPMEDIA::%s" % datei, url)
+def replace_media(html, url_map):
+    """Replace the WPMEDIA:: placeholders with the uploaded WordPress URLs."""
+    for filename, url in url_map.items():
+        html = html.replace("WPMEDIA::%s" % filename, url)
     return html

@@ -1,4 +1,4 @@
-"""Duenner Client fuer die WordPress-REST-API v2."""
+"""Thin client for the WordPress REST API v2."""
 import html
 import mimetypes
 import os
@@ -20,105 +20,104 @@ class WPClient:
         self.session.headers.update({"Accept": "application/json"})
         self._term_cache = {}
 
-    def _call(self, methode, pfad, **kwargs):
+    def _call(self, method, path, **kwargs):
         kwargs.setdefault("timeout", 60)
-        antwort = self.session.request(methode, self.base + pfad, **kwargs)
-        if antwort.status_code >= 400:
-            # Bewusst ohne Auth-Header/Passwort in der Meldung.
+        response = self.session.request(method, self.base + path, **kwargs)
+        if response.status_code >= 400:
+            # Deliberately without the auth header or password in the message.
             raise WPError("%s %s -> HTTP %s: %s"
-                          % (methode, pfad, antwort.status_code, antwort.text[:300]))
-        return antwort.json()
+                          % (method, path, response.status_code, response.text[:300]))
+        return response.json()
 
-    def _alle_terms(self, taxonomy):
-        """Vollstaendige Termliste einer Taxonomie, einmal je Lauf geladen.
+    def _all_terms(self, taxonomy):
+        """The full term list of a taxonomy, fetched once per run.
 
-        Bewusst OHNE den search-Parameter: Namen mit Sonderzeichen liegen in
-        WordPress als HTML-Entity in der Datenbank ("Code &amp; Technik"), die
-        Suche nach dem Klartextnamen liefert dann null Treffer. Am echten Blog
-        am 29.08.2026 gemessen - der Client haette ein Duplikat angelegt.
+        Deliberately WITHOUT the search parameter: names containing special
+        characters are stored as HTML entities in WordPress ("Code &amp;
+        Technik"), so searching for the plain text name returns zero results.
+        Measured against a live blog - the client used to create a duplicate.
         """
         if taxonomy in self._term_cache:
             return self._term_cache[taxonomy]
-        alle = []
-        seite = 1
+        all_terms = []
+        page = 1
         while True:
-            teil = self._call("GET", "/wp/v2/%s" % taxonomy,
-                              params={"per_page": 100, "page": seite, "hide_empty": "false"})
-            alle.extend(teil)
-            if len(teil) < 100:
+            chunk = self._call("GET", "/wp/v2/%s" % taxonomy,
+                               params={"per_page": 100, "page": page, "hide_empty": "false"})
+            all_terms.extend(chunk)
+            if len(chunk) < 100:
                 break
-            seite += 1
-        self._term_cache[taxonomy] = alle
-        return alle
+            page += 1
+        self._term_cache[taxonomy] = all_terms
+        return all_terms
 
     @staticmethod
     def _term_key(name):
         return html.unescape(str(name)).strip().lower()
 
-    def term_ids(self, taxonomy, namen, anlegen=True):
-        """Namen auf Term-IDs abbilden. Gibt (ids, fehlende_namen) zurueck.
+    def term_ids(self, taxonomy, names, create=True):
+        """Map names to term IDs. Returns (ids, missing_names).
 
-        Zahlen werden unveraendert als bereits bekannte ID durchgereicht.
-        Mit anlegen=False wird nichts geschrieben: unbekannte Terms landen
-        stattdessen in der zweiten Rueckgabeliste. Das braucht der Dry-Run,
-        der nach eigener Zusage nichts an WordPress sendet.
+        Integers are passed through unchanged as known IDs. With create=False
+        nothing is written: unknown terms end up in the second return value
+        instead. The dry run needs this, since it promises to send nothing.
         """
         ids = []
-        fehlend = []
-        for name in namen or []:
+        missing = []
+        for name in names or []:
             if isinstance(name, int) and not isinstance(name, bool):
                 ids.append(name)
                 continue
             name = str(name).strip()
             if not name:
                 continue
-            gesucht = self._term_key(name)
-            passend = [t for t in self._alle_terms(taxonomy)
-                       if self._term_key(t.get("name", "")) == gesucht]
-            if passend:
-                ids.append(passend[0]["id"])
-            elif anlegen:
-                neu = self._call("POST", "/wp/v2/%s" % taxonomy, json={"name": name})
-                self._term_cache[taxonomy].append(neu)      # nicht zweimal anlegen
-                ids.append(neu["id"])
+            wanted = self._term_key(name)
+            matches = [t for t in self._all_terms(taxonomy)
+                       if self._term_key(t.get("name", "")) == wanted]
+            if matches:
+                ids.append(matches[0]["id"])
+            elif create:
+                new = self._call("POST", "/wp/v2/%s" % taxonomy, json={"name": name})
+                self._term_cache[taxonomy].append(new)      # do not create it twice
+                ids.append(new["id"])
             else:
-                fehlend.append(name)
-        return ids, fehlend
+                missing.append(name)
+        return ids, missing
 
     @staticmethod
-    def medien_dateiname(pfad):
-        """Deterministischer, WordPress-sicherer Dateiname.
+    def media_filename(path):
+        """A deterministic, WordPress-safe filename.
 
-        Wird bewusst vor dem Upload angewandt, damit der WordPress-Slug
-        vorhersagbar ist und ein spaeterer Lauf dieselbe Datei wiederfindet.
+        Applied before the upload on purpose, so the WordPress slug is
+        predictable and a later run finds the same file again.
         """
-        stamm, endung = os.path.splitext(os.path.basename(pfad))
-        stamm = unicodedata.normalize("NFKD", stamm)
-        stamm = stamm.encode("ascii", "ignore").decode("ascii")
-        stamm = re.sub(r"[^A-Za-z0-9]+", "-", stamm).strip("-").lower()
-        return (stamm or "bild") + endung.lower()
+        stem, ext = os.path.splitext(os.path.basename(path))
+        stem = unicodedata.normalize("NFKD", stem)
+        stem = stem.encode("ascii", "ignore").decode("ascii")
+        stem = re.sub(r"[^A-Za-z0-9]+", "-", stem).strip("-").lower()
+        return (stem or "image") + ext.lower()
 
-    def upload_media(self, pfad, wiederverwenden=True):
-        """Laedt eine Datei hoch und gibt ihre source_url zurueck.
+    def upload_media(self, path, reuse=True):
+        """Upload a file and return its source_url.
 
-        Liegt sie schon in der Mediathek, wird die vorhandene wiederverwendet.
-        Ohne das erzeugte jeder Republish eine Kopie - am 29.08.2026 live
-        gemessen ('Pasted-image-20260829-1.png' nach dem zweiten Lauf).
+        If it is already in the media library, the existing one is reused.
+        Without this, every republish created another copy - measured live
+        ('some-image-1.png' after the second run).
         """
-        name = self.medien_dateiname(pfad)
-        if wiederverwenden:
-            treffer = self._call("GET", "/wp/v2/media",
-                                 params={"slug": os.path.splitext(name)[0], "per_page": 5})
-            if treffer:
-                return treffer[0]["source_url"]
-        typ = mimetypes.guess_type(name)[0] or "application/octet-stream"
-        with open(pfad, "rb") as fh:
-            daten = fh.read()
-        antwort = self._call("POST", "/wp/v2/media", data=daten, headers={
+        name = self.media_filename(path)
+        if reuse:
+            hits = self._call("GET", "/wp/v2/media",
+                              params={"slug": os.path.splitext(name)[0], "per_page": 5})
+            if hits:
+                return hits[0]["source_url"]
+        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        with open(path, "rb") as fh:
+            data = fh.read()
+        response = self._call("POST", "/wp/v2/media", data=data, headers={
             "Content-Disposition": 'attachment; filename="%s"' % name,
-            "Content-Type": typ,
+            "Content-Type": mime,
         })
-        return antwort["source_url"]
+        return response["source_url"]
 
     def get_post(self, post_id):
         return self._call("GET", "/wp/v2/posts/%s" % post_id, params={"context": "edit"})
