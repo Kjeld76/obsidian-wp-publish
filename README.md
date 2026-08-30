@@ -153,3 +153,7 @@ suite, because the fakes modelled WordPress the way I *imagined* it rather than
 how it behaves. Several tests are regressions for exactly those cases —
 the dry run that wrote, term names containing `&` that could never be found,
 images in subfolders, and a media upload that duplicated on every run.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
