@@ -4,7 +4,9 @@ import re
 
 import markdown
 
-EXTENSIONS = ["fenced_code", "tables", "sane_lists", "attr_list"]
+EXTENSIONS = ["fenced_code", "tables", "sane_lists", "attr_list", "footnotes"]
+# footnotes: Obsidian-style [^1] references become numbered endnotes with
+# backlinks, rendered at the end of the post. Sources go there, not inline.
 
 EMBED_RE = re.compile(r"!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]")
 WIKILINK_RE = re.compile(r"(?<!!)\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]")

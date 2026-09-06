@@ -28,3 +28,12 @@ def test_heading_list_and_link():
     assert "<h2>Title</h2>" in html
     assert "<li>one</li>" in html
     assert '<a href="https://example.com">Example</a>' in html
+
+
+def test_footnotes_become_numbered_endnotes_with_backlinks():
+    """Sources belong at the end as endnotes, not inline (decided 2026-09-06)."""
+    md = "Claim.[^1]\n\n## Quellen\n\n[^1]: Bundestag, Textarchiv, 18.03.2025 <https://www.bundestag.de/x>\n"
+    html = mc.to_html(md)
+    assert '<sup id="fnref:1">' in html
+    assert 'href="https://www.bundestag.de/x"' in html
+    assert 'class="footnote"' in html
