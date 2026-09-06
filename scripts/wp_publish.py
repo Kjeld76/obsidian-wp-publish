@@ -50,6 +50,27 @@ def find_image(name, note_path, cfg):
     return None
 
 
+def _image_texts(data):
+    """images[] from the frontmatter as {normalised path or basename: (alt, caption)}."""
+    texts = {}
+    for item in data.get("images") or []:
+        if not isinstance(item, dict) or not item.get("path"):
+            continue
+        key = str(item["path"]).replace("\\", "/").strip()
+        entry = (str(item.get("alt") or "").strip(), str(item.get("caption") or "").strip())
+        texts[key] = entry
+        texts[os.path.basename(key)] = entry
+    return texts
+
+
+def _upload(client, path):
+    """Upload via the client; returns (url, media_id). Older clients lack ids."""
+    if hasattr(client, "upload_media_item"):
+        item = client.upload_media_item(path)
+        return item["source_url"], item.get("id")
+    return client.upload_media(path), None
+
+
 def build_payload(note_text, cfg, client, note_path, write=True):
     """Build the WordPress payload. Returns (payload, warnings).
 
@@ -65,19 +86,50 @@ def build_payload(note_text, cfg, client, note_path, write=True):
         )
 
     md_text, images, warnings = mdconvert.preprocess(body)
+    texts = _image_texts(data)
 
-    url_map = {}
+    def text_for(name):
+        key = name.replace("\\", "/").strip()
+        return texts.get(key) or texts.get(os.path.basename(key)) or ("", "")
+
+    url_map, alt_map = {}, {}
     for name in images:
         path = find_image(name, note_path, cfg)
+        alt, caption = text_for(name)
+        if alt:
+            alt_map[name] = alt
         if path is None:
             warnings.append("Image '%s' not found - placeholder left in place" % name)
             continue
         if not write:
             warnings.append("Image '%s' would be uploaded to the media library" % name)
             continue
-        url_map[name] = client.upload_media(path)
+        url_map[name], media_id = _upload(client, path)
+        if media_id and (alt or caption) and hasattr(client, "set_media_text"):
+            client.set_media_text(media_id, alt, caption)
 
-    html = mdconvert.replace_media(mdconvert.to_html(md_text), url_map)
+    html = mdconvert.replace_media(mdconvert.to_html(md_text), url_map, alt_map)
+
+    # Featured image: from the frontmatter, never from an inline embed. The
+    # old rule "embed it as well so it gets uploaded" showed it twice on the
+    # page (theme header + first paragraph) - measured on three posts.
+    featured_media = None
+    featured = data.get("featured_image")
+    if featured:
+        featured = str(featured)
+        path = find_image(featured, note_path, cfg)
+        if path is None:
+            warnings.append("Featured image '%s' not found - no featured image set" % featured)
+        elif not write:
+            warnings.append("Featured image '%s' would be uploaded and set" % featured)
+        else:
+            _, featured_media = _upload(client, path)
+            if featured_media is None:
+                warnings.append("Featured image '%s' uploaded, but the client returned no id - not set" % featured)
+            else:
+                alt, caption = text_for(featured)
+                if (alt or caption) and hasattr(client, "set_media_text"):
+                    client.set_media_text(featured_media, alt, caption)
     title = data.get("title") or os.path.splitext(os.path.basename(note_path))[0]
 
     cat_ids, cat_missing = client.term_ids(
@@ -95,6 +147,8 @@ def build_payload(note_text, cfg, client, note_path, write=True):
         "categories": cat_ids,
         "tags": tag_ids,
     }
+    if featured_media:
+        payload["featured_media"] = featured_media
     return payload, warnings
 
 
@@ -129,6 +183,7 @@ def main(argv=None):
         print("Title:  %s" % payload["title"])
         print("Status: %s" % payload["status"])
         print("Terms:  categories=%s tags=%s" % (payload["categories"], payload["tags"]))
+        print("Featured image: %s" % (fm.split_note(text)[0].get("featured_image") or "none"))
         print("HTML (first 600 characters):\n%s" % payload["content"][:600])
         return 0
 

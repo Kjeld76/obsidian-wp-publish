@@ -97,8 +97,8 @@ class WPClient:
         stem = re.sub(r"[^A-Za-z0-9]+", "-", stem).strip("-").lower()
         return (stem or "image") + ext.lower()
 
-    def upload_media(self, path, reuse=True):
-        """Upload a file and return its source_url.
+    def upload_media_item(self, path, reuse=True):
+        """Upload a file and return the media item ({"id", "source_url", ...}).
 
         If it is already in the media library, the existing one is reused.
         Without this, every republish created another copy - measured live
@@ -109,15 +109,25 @@ class WPClient:
             hits = self._call("GET", "/wp/v2/media",
                               params={"slug": os.path.splitext(name)[0], "per_page": 5})
             if hits:
-                return hits[0]["source_url"]
+                return hits[0]
         mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
         with open(path, "rb") as fh:
             data = fh.read()
-        response = self._call("POST", "/wp/v2/media", data=data, headers={
+        return self._call("POST", "/wp/v2/media", data=data, headers={
             "Content-Disposition": 'attachment; filename="%s"' % name,
             "Content-Type": mime,
         })
-        return response["source_url"]
+
+    def upload_media(self, path, reuse=True):
+        """Upload a file and return its source_url (kept for compatibility)."""
+        return self.upload_media_item(path, reuse=reuse)["source_url"]
+
+    def set_media_text(self, media_id, alt, caption=None):
+        """Write alt text (and caption) to a media item."""
+        payload = {"alt_text": alt or ""}
+        if caption:
+            payload["caption"] = caption
+        return self._call("POST", "/wp/v2/media/%s" % media_id, json=payload)
 
     def get_post(self, post_id):
         return self._call("GET", "/wp/v2/posts/%s" % post_id, params={"context": "edit"})
