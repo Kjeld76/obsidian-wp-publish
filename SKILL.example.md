@@ -54,6 +54,11 @@ categories:
   - Uncategorized      # names, not IDs - the tool maps them
 wp_status: draft       # optional, otherwise default_status from config.json
 wp_id: 168             # set by the tool, never by hand
+featured_image: attachments/blog/my-post/hero.png   # optional, uploaded and set as featured image
+images:                # optional: alt text and caption per image, by path or filename
+  - path: attachments/blog/my-post/hero.png
+    alt: "What the image shows"
+    caption: "Shown under the image in the media library"
 ---
 ```
 

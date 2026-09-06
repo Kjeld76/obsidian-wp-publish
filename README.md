@@ -110,11 +110,21 @@ categories:
   - Uncategorized      # names, not IDs — the tool maps them
 wp_status: draft       # optional, falls back to default_status
 wp_id: 168             # written by the tool, never by hand
+featured_image: attachments/blog/my-post/hero.png   # optional, uploaded and set as featured image
+images:                # optional: alt text and caption per image, by path or filename
+  - path: attachments/blog/my-post/hero.png
+    alt: "What the image shows"
+    caption: "Shown under the image in the media library"
 ---
 ```
 
 Without `title` the filename is used. Integers in `categories` or `tags` are
 passed through as term IDs you already know.
+
+`featured_image` is looked up like an embed (next to the note, in the vault,
+in the attachment folders) and set as the post's featured image — do not embed
+it in the text as well, or it shows up twice. Entries in `images` match embeds
+by full path or by filename; the featured image may have one without an embed.
 
 `wp_id` is what makes re-publishing safe: if it's there, the existing post is
 updated rather than a second one created.
