@@ -25,6 +25,8 @@ being set has changed, the write is aborted and your note stays as it was.
 - Sets the featured image from `featured_image:` in the frontmatter (no inline
   embed needed, so it does not show up twice on the page) and writes alt
   texts and captions from `images:` to the media items and `<img>` tags
+- Renders Obsidian footnotes (`[^1]` in the text, `[^1]: source` at the end) as
+  numbered endnotes with backlinks — the place for sources instead of inline links
 - Maps category and tag *names* to WordPress term IDs, creating what's missing
 - Turns wikilinks into plain text and warns for each one, since the target note
   doesn't exist on your blog
@@ -120,6 +122,16 @@ images:                # optional: alt text and caption per image, by path or fi
 
 Without `title` the filename is used. Integers in `categories` or `tags` are
 passed through as term IDs you already know.
+
+Sources go into footnotes:
+
+```markdown
+The claim.[^1]
+
+## Sources
+
+[^1]: Publisher: Title, 2026-03-18 <https://example.org/page>
+```
 
 `featured_image` is looked up like an embed (next to the note, in the vault,
 in the attachment folders) and set as the post's featured image — do not embed
