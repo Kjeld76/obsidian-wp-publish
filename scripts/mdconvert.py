@@ -1,4 +1,5 @@
 """Prepare Obsidian flavoured Markdown for WordPress and convert it to HTML."""
+import html as _html
 import re
 
 import markdown
@@ -53,8 +54,17 @@ def to_html(body):
     return CODE_CLASS_RE.sub(_language_class, html)
 
 
-def replace_media(html, url_map):
-    """Replace the WPMEDIA:: placeholders with the uploaded WordPress URLs."""
+def replace_media(html, url_map, alt_map=None):
+    """Replace the WPMEDIA:: placeholders with the uploaded WordPress URLs.
+
+    alt_map (embed name -> alt text) fills the alt attribute that the Obsidian
+    embed syntax cannot carry. Without it every image went out as alt="".
+    """
+    alt_map = alt_map or {}
     for filename, url in url_map.items():
+        alt = alt_map.get(filename)
+        if alt:
+            html = html.replace('<img alt="" src="WPMEDIA::%s"' % filename,
+                                '<img alt="%s" src="%s"' % (_html.escape(alt, quote=True), url))
         html = html.replace("WPMEDIA::%s" % filename, url)
     return html

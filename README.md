@@ -22,6 +22,9 @@ being set has changed, the write is aborted and your note stays as it was.
 - Converts Obsidian Markdown to HTML — fenced code blocks, tables, lists, links
 - Uploads embedded images (`![[image.png]]`) to the media library and rewrites
   the links, reusing an image that is already there instead of duplicating it
+- Sets the featured image from `featured_image:` in the frontmatter (no inline
+  embed needed, so it does not show up twice on the page) and writes alt
+  texts and captions from `images:` to the media items and `<img>` tags
 - Maps category and tag *names* to WordPress term IDs, creating what's missing
 - Turns wikilinks into plain text and warns for each one, since the target note
   doesn't exist on your blog
@@ -128,8 +131,8 @@ None of this is required. The scripts are plain Python and work on their own.
 
 ## What it deliberately does not do
 
-- It does not send `slug`, `excerpt` or the featured image. WordPress derives
-  the permalink from the title, and the rest you set in the editor.
+- It does not send `slug` or `excerpt`. WordPress derives the permalink from
+  the title, and the excerpt you set in the editor.
 - It does not touch any frontmatter field except `wp_id`.
 - It does not publish without you asking for it.
 
